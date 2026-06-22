@@ -1,52 +1,82 @@
 import numpy as np
 
 def VAD(waveform, Fs):
-    '''
-    Extract the segments that have energy greater than 10% of maximum.
-    Calculate the energy in frames that have 25ms frame length and 10ms frame step.
+    frame_length = int(0.025 * Fs)
+    step = int(0.01 * Fs)
+    num_frames = int((len(waveform) - frame_length) / step) + 1
     
-    @params:
-    waveform (np.ndarray(N)) - the waveform
-    Fs (scalar) - sampling rate
+    energies = np.zeros(num_frames)
+    for i in range(num_frames):
+        frame = waveform[i * step : i * step + frame_length]
+        energies[i] = np.sum(frame ** 2)
+        
+    threshold = 0.1 * np.max(energies)
+    is_active = energies > threshold
     
-    @returns:
-    segments (list of arrays) - list of the waveform segments where energy is 
-       greater than 10% of maximum energy
-    '''
-    raise RuntimeError("You need to change this part")
+    segments = []
+    in_segment = False
+    start_idx = 0
+    
+    for i in range(num_frames):
+        if is_active[i] and not in_segment:
+            start_idx = i
+            in_segment = True
+        elif not is_active[i] and in_segment:
+            end_idx = i - 1
+            start_sample = start_idx * step
+            end_sample = end_idx * step + frame_length
+            segments.append(waveform[start_sample:end_sample])
+            in_segment = False
+            
+    if in_segment:
+        start_sample = start_idx * step
+        end_sample = (num_frames - 1) * step + frame_length
+        segments.append(waveform[start_sample:end_sample])
+        
+    return segments
 
 def segments_to_models(segments, Fs):
-    '''
-    Create a model spectrum from each segment:
-    Pre-emphasize each segment, then calculate its spectrogram with 4ms frame length and 2ms step,
-    then keep only the low-frequency half of each spectrum, then average the low-frequency spectra
-    to make the model.
+    models = []
+    frame_length = int(0.004 * Fs)
+    step = int(0.002 * Fs)
+    half_N = frame_length // 2
     
-    @params:
-    segments (list of arrays) - waveform segments that contain speech
-    Fs (scalar) - sampling rate
-    
-    @returns:
-    models (list of arrays) - average log spectra of pre-emphasized waveform segments
-    '''
-    raise RuntimeError("You need to change this part")
+    for seg in segments:
+        pre = np.append(seg[0], seg[1:] - 0.97 * seg[:-1])
+        num_frames = int((len(pre) - frame_length) / step) + 1
+        specs = []
+        for i in range(num_frames):
+            frame = pre[i * step : i * step + frame_length]
+            mag = np.abs(np.fft.fft(frame))[:half_N]
+            specs.append(np.log(np.maximum(mag, 1e-10)))
+        
+        if specs:
+            models.append(np.mean(specs, axis=0))
+        else:
+            models.append(np.zeros(half_N))
+            
+    return models
 
 def recognize_speech(testspeech, Fs, models, labels):
-    '''
-    Chop the testspeech into segments using VAD, convert it to models using segments_to_models,
-    then compare each test segment to each model using cosine similarity,
-    and output the label of the most similar model to each test segment.
+    test_segments = VAD(testspeech, Fs)
+    test_models = segments_to_models(test_segments, Fs)
     
-    @params:
-    testspeech (array) - test waveform
-    Fs (scalar) - sampling rate
-    models (list of Y arrays) - list of model spectra
-    labels (list of Y strings) - one label for each model
+    Y = len(models)
+    K = len(test_models)
+    sims = np.zeros((Y, K))
+    test_outputs = []
     
-    @returns:
-    sims (Y-by-K array) - cosine similarity of each model to each test segment
-    test_outputs (list of strings) - recognized label of each test segment
-    '''
-    raise RuntimeError("You need to change this part")
-
-
+    for k, t_model in enumerate(test_models):
+        for y, m_model in enumerate(models):
+            dot_product = np.dot(m_model, t_model)
+            norm_m = np.linalg.norm(m_model)
+            norm_t = np.linalg.norm(t_model)
+            if norm_m > 0 and norm_t > 0:
+                sims[y, k] = dot_product / (norm_m * norm_t)
+            else:
+                sims[y, k] = 0.0
+        
+        best_idx = np.argmax(sims[:, k])
+        test_outputs.append(labels[best_idx])
+        
+    return sims, test_outputs
