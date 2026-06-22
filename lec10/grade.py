@@ -2,8 +2,8 @@ import unittest, homework10
 import numpy as np
 import librosa
 
-speech, Fs = librosa.load('train.m4a', sr=8000)
-testspeech, Fs = librosa.load('test.m4a', sr=8000)
+speech, Fs = librosa.load('train.wav', sr=8000)
+testspeech, Fs = librosa.load('test.wav', sr=8000)
 labels = ['a', 'i', 'u', 'e', 'o']
 
 # TestSequence
